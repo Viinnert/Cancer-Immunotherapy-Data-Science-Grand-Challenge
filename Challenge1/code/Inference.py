@@ -27,11 +27,7 @@ class Inference():
         
         for gene_idx, gene in enumerate(tqdm(genes)):
             # Get importances
-            importances = self.get_importances(gene, gene_idx, n_instances, n_estimators, max_depth)
-            importances = np.insert(importances, gene_idx, 0)
-
-            # Save importances to network matrix
-            self.network[:,gene_idx] = importances
+            self.get_importances(gene, gene_idx, n_instances, n_estimators, max_depth)
 
         print('\nFinished infering genetic regulatory network.')
         
@@ -46,15 +42,15 @@ class Inference():
         features = np.delete(gene_expressions, gene_idx, axis=1)
 
         # Get importances
-        #random_forest = RandomForestRegressor(n_estimators=n_estimators, max_depth=max_depth, n_jobs=-1)
-
-        gpu_params = {'tree_method': 'gpu_hist', 'predictor': 'gpu_predictor', 'n_jobs': -1}
-        random_forest = xgb.XGBRegressor(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1, **gpu_params)
-
+        random_forest = RandomForestRegressor(n_estimators=n_estimators, max_depth=max_depth, n_jobs=-1)
+        #gpu_params = {'tree_method': 'gpu_hist', 'predictor': 'gpu_predictor', 'n_jobs': -1}
+        #random_forest = xgb.XGBRegressor(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1, **gpu_params)
         random_forest.fit(features, target)
         importances = random_forest.feature_importances_
 
-        return importances
+        # Save to network
+        importances = np.insert(importances, gene_idx, 0)
+        self.network[:,gene_idx] = importances
 
 
     def find_lowest_threshold(self, epsilon=0.1):
