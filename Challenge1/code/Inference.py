@@ -25,9 +25,12 @@ class Inference():
         # Get list of genes
         genes = self.dataloader.adata.var_names
         
+        # Get importances
         for gene_idx, gene in enumerate(tqdm(genes)):
-            # Get importances
             self.get_importances(gene, gene_idx, n_instances, n_estimators, max_depth)
+
+        # Ranking the genes
+        self.order_genes()
 
         print('\nFinished infering genetic regulatory network.')
         
@@ -52,9 +55,33 @@ class Inference():
         importances = np.insert(importances, gene_idx, 0)
         self.network[:,gene_idx] = importances
 
+    
+    def order_genes(self):
+        print('\nDetermining gene order.')
+        importances = np.sum(self.network, axis=1)
+        _, inverse = np.unique(importances, return_inverse=True)
+
+        # From important to not important
+        inverse = list(reversed(inverse))
+
+        # Remove upward edges
+        for idx, gene_idx in enumerate(inverse):
+            down_genes = inverse[idx:]
+            self.network[down_genes,gene_idx] = 0
+
+
+    def determine_directionality(self):
+        print('Determining directionalty.')
+        for i in tqdm(range(self.n_genes)):
+            for j in range(i):
+                if self.network[i,j] > self.network[j,i]:
+                    self.network[j,i] = 0
+                else:
+                    self.network[i,j] = 0
+
 
     def find_lowest_threshold(self, epsilon=0.1):
-        print('\nFinding importance threshold for which no cycles occur')
+        print('\nFinding importance threshold for which no cycles occur.')
         low_thresh = 0
         high_thresh = 1 
 
@@ -105,6 +132,36 @@ class Inference():
 
         recstack[gene] = False
         return False
+
+
+    def check_cycle2(self):
+        #graph = { 1: [2, 3, 5], 2: [1], 3: [1], 4: [2], 5: [2] }
+        graph = {}
+        for gene_idx in range(self.n_genes):
+            graph[gene_idx] = list(np.argwhere(self.network_bool[gene_idx] == 1).flatten())
+
+        #cycles = [[node]+path  for node in graph for path in self.dfs(graph, node, node)]
+        cycles = []
+        for node in graph:
+            for path in self.dfs(graph, node, node):
+                cycle = [node]+path
+                print(cycle)
+                cycles.append(cycle)
+
+        return cycles
+
+
+    def dfs(self, graph, start, end):
+        fringe = [(start, [])]
+        while fringe:
+            state, path = fringe.pop()
+            if path and state == end:
+                yield path
+                continue
+            for next_state in graph[state]:
+                if next_state in path:
+                    continue
+                fringe.append((next_state, path+[next_state]))
 
 
     def get_knockout_order(self, gene):

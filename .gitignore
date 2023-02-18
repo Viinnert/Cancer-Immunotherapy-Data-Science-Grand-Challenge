@@ -1,0 +1,5 @@
+*.npy
+*.pickle
+*.h5ad
+*.h5
+*.csv

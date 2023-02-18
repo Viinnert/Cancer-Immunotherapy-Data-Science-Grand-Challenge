@@ -3,6 +3,7 @@ import pickle
 
 from tqdm import tqdm
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.decomposition import PCA
 from sklearn.neighbors import KNeighborsClassifier
 
@@ -44,6 +45,10 @@ class Predictor():
 
 
     def predict_knockout_effect(self, gene, n_components, n_neighbors):
+        # Check if fitted
+        if self.fitted == False:
+            raise RuntimeError('Predictor has nog yet been fitted.')
+
         print(f'\nPredicting state proportions after knockout of {gene}.')
         # Get data of unperturbed cells
         gene_expressions = self.dataloader.get_gene_expressions_unperturbed_cells()
@@ -58,7 +63,7 @@ class Predictor():
             gene_expressions = self.recalculate(gene_idx, gene_expressions)
 
         # Get proportions
-        proportions = self.get_state_proportions(gene_expressions, n_components, n_neighbors)
+        proportions = self.get_state_proportions(gene_expressions)
         
         return proportions
 
@@ -80,25 +85,13 @@ class Predictor():
         return gene_expressions
 
     
-    def get_state_proportions(self, predicted_expressions, n_components, n_neighbors):
-        # Get original expressions
-        original_expressions = self.dataloader.gene_expressions
-
-        # Fit pca and nearest neighbor
+    def get_state_proportions(self, predicted_expressions):
+        # Check if fitted
         if self.fitted == False:
-            # Pca
-            self.pca = PCA(n_components=n_components)
-            original_reduced = self.pca.fit_transform(original_expressions)
-
-            # Nearest neighbor
-            original_states = self.dataloader.adata.obs['state']
-            self.nearest_neighbors = KNeighborsClassifier(n_neighbors=n_neighbors)
-            self.nearest_neighbors.fit(original_reduced, original_states)
-
-            self.fitted = True
+            raise RuntimeError('Predictor has nog yet been fitted.')
 
         # Do pca and nearest neighbor on predictions
-        predicted_reduced = self.pca.transform(predicted_expressions)
+        predicted_reduced = self.pca.transform(predicted_expressions[:,self.state_features_idxs])
         predicted_states = self.nearest_neighbors.predict(predicted_reduced)
 
         # Calculate proportions
@@ -112,6 +105,31 @@ class Predictor():
 
         return proportions
 
+    
+    def fit(self, n_features, n_components, n_neighbors):
+        print('\nFitting predictor.')
+        # Get gene expressions and states
+        expressions = self.dataloader.gene_expressions
+        states = self.dataloader.adata.obs['state'].to_numpy()
+
+        # Feature selection
+        model = RandomForestClassifier(n_estimators=100, n_jobs=-1)
+        model.fit(expressions, states)
+        importances = model.feature_importances_
+
+        sorted_ = np.array(list(reversed(sorted(importances))))
+        self.state_features_idxs = np.argwhere(importances > sorted_[n_features]).flatten()
+    
+        # Pca
+        self.pca = PCA(n_components=n_components)
+        reduced = self.pca.fit_transform(expressions[:,self.state_features_idxs])
+
+        # Nearest neighbor
+        self.nearest_neighbors = KNeighborsClassifier(n_neighbors=n_neighbors)
+        self.nearest_neighbors.fit(reduced, states)
+
+        self.fitted = True
+
 
     def save_models(self, model_name):
         with open(f'models/{model_name}.pickle', 'wb') as handle:
@@ -119,5 +137,6 @@ class Predictor():
 
 
     def load_models(self, model_name):
+        print('\nLoading models.')
         with open(f'models/{model_name}.pickle', 'rb') as handle:
             self.models = pickle.load(handle)
